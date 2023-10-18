@@ -14,6 +14,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/spf13/cobra"
+
+	"github.com/int128/kubelogin/pkg/cmd"
+	"github.com/int128/kubelogin/pkg/di"
+
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -77,6 +82,10 @@ type LoginOptions struct {
 	CommandName    string
 	RequestTimeout time.Duration
 
+	OIDCEnabled   bool
+	OIDCIssuerUrl string
+	OIDCClientID  string
+
 	genericiooptions.IOStreams
 }
 
@@ -94,10 +103,10 @@ func NewLoginOptions(streams genericiooptions.IOStreams) *LoginOptions {
 }
 
 // Gather all required information in a comprehensive order.
-func (o *LoginOptions) GatherInfo() error {
+func (o *LoginOptions) GatherInfo(cmd *cobra.Command) error {
 	defer o.prepareAndDisplayMOTD()
 
-	if err := o.gatherAuthInfo(); err != nil {
+	if err := o.gatherAuthInfo(cmd); err != nil {
 		return err
 	}
 	if err := o.gatherProjectInfo(); err != nil {
@@ -202,7 +211,7 @@ func (o *LoginOptions) getClientConfig() (*restclient.Config, error) {
 // Negotiate a bearer token with the auth server, or try to reuse one based on the
 // information already present. In case of any missing information, ask for user input
 // (usually username and password, interactive depending on the Reader).
-func (o *LoginOptions) gatherAuthInfo() error {
+func (o *LoginOptions) gatherAuthInfo(c *cobra.Command) error {
 	directClientConfig, err := o.getClientConfig()
 	if err != nil {
 		return err
@@ -215,6 +224,56 @@ func (o *LoginOptions) gatherAuthInfo() error {
 	// make a copy and use it to avoid mutating the original
 	t := *directClientConfig
 	clientConfig := &t
+
+	if o.OIDCEnabled {
+		// assume that int128/kubelogin binary is installed in PATH but we also use vendored code base for setting up
+		// user calls oc login api-int.openshift.url --external-client-issuer-url=azure.sts.url --external-client-id=test-client-id --external-oidc
+		// that will first call kubectl oidc-login setup command and if it successfully logs in,
+		// it will prepare kubeconfig for kubectl oidc-login get-token for the actual commands invocations(e.g. oc get pods) managed by client-go
+		oidcCmd := di.NewCmd().(*cmd.Cmd)
+		setupCmd := oidcCmd.Setup.New()
+		err = setupCmd.Flags().Set("--oidc-issuer-url", o.OIDCIssuerUrl)
+		if err != nil {
+			return err
+		}
+		err = setupCmd.Flags().Set("--oidc-client-id", o.OIDCClientID)
+		if err != nil {
+			return err
+		}
+		// TODO IMPORTANT oidc-client-secret needed????
+		err = setupCmd.RunE(c, nil)
+		if err != nil {
+			return err
+		}
+
+		clientConfig.ExecProvider = &kclientcmdapi.ExecConfig{
+			Command: "oc",
+			Args: []string{
+				// TODO we can introduce our get-token command as well and can call oc get-token
+				// which is basically running kubectl oidc-login get-token
+				"oidc-login",
+				"get-token",
+				fmt.Sprintf("--oidc-issuer-url=%s", o.OIDCIssuerUrl),
+				fmt.Sprintf("--oidc-client-id=%s", o.OIDCClientID),
+				// TODO scope is required?
+				// TODO more importantly client-client-secret mandatory?
+			},
+			APIVersion: "client.authentication.k8s.io/v1beta1",
+		}
+
+		// TODO: project.WhoAmI must work
+		me, err := project.WhoAmI(clientConfig)
+		if err != nil {
+			if kerrors.IsUnauthorized(err) {
+				return fmt.Errorf("The token provided is invalid or expired.\n\n")
+			}
+			return err
+		}
+		o.Username = me.Name
+		o.Config = clientConfig
+		fmt.Fprintf(o.Out, "Logged into %q as %q using the token provided.\n\n", o.Config.Host, o.Username)
+		return nil
+	}
 
 	// if a token were explicitly provided, try to use it
 	if o.tokenProvided() {

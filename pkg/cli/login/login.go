@@ -47,6 +47,9 @@ var (
 
 		# Log in to the given server through a browser
 		oc login localhost:8443 --web --callback-port 8280
+
+		# Log in to the given server via external OIDC issuer
+		oc login localhost:8443 --external-oidc --external-oidc-issuer-url=localhost:8080 --external-oidc-client-id=client-id
 	`)
 )
 
@@ -62,7 +65,7 @@ func NewCmdLogin(f kcmdutil.Factory, streams genericiooptions.IOStreams) *cobra.
 			kcmdutil.CheckErr(o.Complete(f, cmd, args))
 			kcmdutil.CheckErr(o.Validate(cmd, kcmdutil.GetFlagString(cmd, "server"), args))
 
-			if err := o.Run(); kapierrors.IsUnauthorized(err) {
+			if err := o.Run(cmd); kapierrors.IsUnauthorized(err) {
 				if err, isStatusErr := err.(*kapierrors.StatusError); isStatusErr {
 					if err.Status().Message != tokenrequest.BasicAuthNoUsernameMessage {
 						fmt.Fprintln(streams.Out, "Login failed (401 Unauthorized)")
@@ -89,6 +92,9 @@ func NewCmdLogin(f kcmdutil.Factory, streams genericiooptions.IOStreams) *cobra.
 
 	cmds.Flags().BoolVarP(&o.WebLogin, "web", "w", o.WebLogin, "Login with web browser. Starts a local HTTP callback server to perform the OAuth2 Authorization Code Grant flow. Use with caution on multi-user systems, as the server's port will be open to all users.")
 	cmds.Flags().Int32VarP(&o.CallbackPort, "callback-port", "c", o.CallbackPort, "Port for the callback server when using --web. Defaults to a random open port")
+	cmds.Flags().BoolVar(&o.OIDCEnabled, "external-oidc", o.OIDCEnabled, "Use external OIDC issuer for authentication.")
+	cmds.Flags().StringVar(&o.OIDCIssuerUrl, "external-oidc-issuer-url", o.OIDCIssuerUrl, "OIDC issuer URL to be used for authentication")
+	cmds.Flags().StringVar(&o.OIDCClientID, "external-oidc-client-id", o.OIDCClientID, "OIDC client id to be used for authentication")
 	return cmds
 }
 
@@ -143,6 +149,10 @@ func (o *LoginOptions) Complete(f kcmdutil.Factory, cmd *cobra.Command, args []s
 	o.InsecureTLS = kcmdutil.GetFlagBool(cmd, "insecure-skip-tls-verify")
 	o.Token = kcmdutil.GetFlagString(cmd, "token")
 
+	o.OIDCEnabled = kcmdutil.GetFlagBool(cmd, "external-oidc")
+	o.OIDCIssuerUrl = kcmdutil.GetFlagString(cmd, "external-oidc-issuer-url")
+	o.OIDCClientID = kcmdutil.GetFlagString(cmd, "external-oidc-client-id")
+
 	o.DefaultNamespace, _, _ = f.ToRawKubeConfigLoader().Namespace()
 
 	o.PathOptions = kclientcmd.NewDefaultPathOptions()
@@ -169,6 +179,12 @@ func (o LoginOptions) Validate(cmd *cobra.Command, serverFlag string, args []str
 		return errors.New("--token and --username are mutually exclusive")
 	}
 
+	if o.OIDCEnabled {
+		if len(o.OIDCClientID) == 0 || len(o.OIDCIssuerUrl) == 0 {
+			return errors.New("issuer url and client id are required for external OIDC authentication")
+		}
+	}
+
 	if o.StartingKubeConfig == nil {
 		return errors.New("Must have a config file already created")
 	}
@@ -185,8 +201,8 @@ func (o LoginOptions) Validate(cmd *cobra.Command, serverFlag string, args []str
 }
 
 // Run contains all the necessary functionality for the OpenShift cli login command
-func (o LoginOptions) Run() error {
-	if err := o.GatherInfo(); err != nil {
+func (o LoginOptions) Run(cmd *cobra.Command) error {
+	if err := o.GatherInfo(cmd); err != nil {
 		return err
 	}
 
