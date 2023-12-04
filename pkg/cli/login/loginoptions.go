@@ -5,14 +5,23 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"golang.org/x/oauth2"
+
+	"golang.org/x/oauth2/clientcredentials"
+
+	"github.com/openshift/library-go/pkg/oauth/oauthdiscovery"
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -70,7 +79,8 @@ type LoginOptions struct {
 	CertFile string
 	KeyFile  string
 
-	ClientID string
+	ClientID     string
+	ClientSecret string
 
 	Token string
 
@@ -219,14 +229,56 @@ func (o *LoginOptions) gatherAuthInfo() error {
 	clientConfig := &t
 
 	if len(o.ClientID) > 0 {
-		loginURLHandler := func(u *url.URL) error {
-			loginURL := u.String()
-			fmt.Fprintf(o.Out, "Opening login URL in the default browser: %s\n", loginURL)
-			return browser.OpenURL(loginURL)
-		}
-		_, idToken, _, err := tokenrequest.RequestTokenWithLocalCallback(o.Config, "admin-cli", loginURLHandler, 8000)
-		if err != nil {
-			return err
+		var idToken string
+		if len(o.ClientSecret) > 0 {
+			oauthMetadata, err := o.getIssuerUrlForOIDC()
+			if err != nil {
+				return err
+			}
+			// Create a certificate pool and add the CA certificate
+			caCertPool := x509.NewCertPool()
+			ca, err := os.ReadFile(o.Config.CAFile)
+			if err != nil {
+				return err
+			}
+			caCertPool.AppendCertsFromPEM(ca)
+
+			// Create a TLS configuration with the custom CA certificate pool
+			tlsConfig := &tls.Config{
+				RootCAs: caCertPool,
+			}
+
+			// Create an HTTP client with the custom TLS configuration
+			transport := &http.Transport{
+				TLSClientConfig: tlsConfig,
+			}
+
+			config := &clientcredentials.Config{
+				ClientID:     o.ClientID,
+				ClientSecret: o.ClientSecret,
+				TokenURL:     oauthMetadata.TokenEndpoint,
+				Scopes:       []string{"openid"},
+			}
+			sslcli := &http.Client{Transport: transport}
+			ctx := context.TODO()
+			ctx = context.WithValue(ctx, oauth2.HTTPClient, sslcli)
+
+			token, err := config.Token(ctx)
+			if err != nil {
+				return err
+			}
+			idToken = token.AccessToken
+
+		} else {
+			loginURLHandler := func(u *url.URL) error {
+				loginURL := u.String()
+				fmt.Fprintf(o.Out, "Opening login URL in the default browser: %s\n", loginURL)
+				return browser.OpenURL(loginURL)
+			}
+			_, idToken, _, err = tokenrequest.RequestTokenWithLocalCallback(o.Config, "admin-cli", loginURLHandler, 8000)
+			if err != nil {
+				return err
+			}
 		}
 
 		clientConfig.BearerToken = idToken
@@ -321,6 +373,42 @@ func (o *LoginOptions) gatherAuthInfo() error {
 	fmt.Fprint(o.Out, "Login successful.\n\n")
 
 	return nil
+}
+
+func (o *LoginOptions) getIssuerUrlForOIDC() (*oauthdiscovery.OauthAuthorizationServerMetadata, error) {
+	// get the OAuth metadata directly from the api server
+	// we only want to use the ca data from our config
+	rt, err := restclient.TransportFor(o.Config)
+	if err != nil {
+		return nil, err
+	}
+
+	requestURL := strings.TrimRight(o.Config.Host, "/") + "/.well-known/oauth-authorization-server"
+
+	// Build the request
+	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-CSRF-Token", "1")
+
+	// Make the request
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("couldn't get %v: unexpected response status %v", requestURL, resp.StatusCode)
+	}
+
+	metadata := &oauthdiscovery.OauthAuthorizationServerMetadata{}
+	if err := json.NewDecoder(resp.Body).Decode(metadata); err != nil {
+		return nil, err
+	}
+
+	return metadata, nil
 }
 
 func (o *LoginOptions) getAuthChallengeHandler() challengehandlers.ChallengeHandler {
