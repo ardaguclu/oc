@@ -264,10 +264,13 @@ func (o *LoginOptions) gatherAuthInfo() error {
 			ctx = context.WithValue(ctx, oauth2.HTTPClient, sslcli)
 
 			token, err := config.Token(ctx)
-			if err != nil {
-				return err
+			if err != nil && token == nil {
+				return fmt.Errorf("token retrieval failed %v", err)
 			}
-			idToken = token.AccessToken
+			if token.Extra("id_token") == nil {
+				return fmt.Errorf("id_token can not be empty")
+			}
+			idToken = token.Extra("id_token").(string)
 
 		} else {
 			loginURLHandler := func(u *url.URL) error {
