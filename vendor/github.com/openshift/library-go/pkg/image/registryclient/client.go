@@ -13,12 +13,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/openshift/library-go/pkg/distribution/manifest/schema1"
 	"golang.org/x/time/rate"
 
 	"k8s.io/klog/v2"
 
 	"github.com/distribution/distribution/v3"
-	"github.com/distribution/distribution/v3/manifest/schema1"
 	"github.com/distribution/distribution/v3/reference"
 	"github.com/distribution/distribution/v3/registry/api/errcode"
 	registryclient "github.com/distribution/distribution/v3/registry/client"
