@@ -332,6 +332,9 @@ func NewOcCommand(o kubecmd.KubectlOptions) *cobra.Command {
 	cmds.AddCommand(kubectlwrappers.NewCmdPlugin(f, o.IOStreams))
 	cmds.AddCommand(version.NewCmdVersion(f, o.IOStreams))
 	cmds.AddCommand(options.NewCmdOptions(o.IOStreams))
+	if !kcmdutil.KubeRC.IsDisabled() {
+		cmds.AddCommand(kubectlwrappers.NewCmdKubeRC(o.IOStreams))
+	}
 
 	registerCompletionFuncForGlobalFlags(cmds, f)
 
