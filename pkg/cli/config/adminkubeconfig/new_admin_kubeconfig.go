@@ -226,7 +226,7 @@ func createNewAdminClientCert() (*crypto.TLSCertificateConfig, []byte, error) {
 			Groups: []string{"system:masters"},
 		},
 	}
-	clientCertKeyPair, err := certSpecification.NewCertificate(signingCertKeyPair, tenYears)
+	clientCertKeyPair, err := certSpecification.NewCertificate(signingCertKeyPair, tenYears, nil)
 	if err != nil {
 		return nil, nil, err
 	}

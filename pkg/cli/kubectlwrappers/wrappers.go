@@ -25,6 +25,7 @@ import (
 	"k8s.io/kubectl/pkg/cmd/exec"
 	"k8s.io/kubectl/pkg/cmd/explain"
 	kget "k8s.io/kubectl/pkg/cmd/get"
+	kuberccmd "k8s.io/kubectl/pkg/cmd/kuberc"
 	"k8s.io/kubectl/pkg/cmd/kustomize"
 	"k8s.io/kubectl/pkg/cmd/label"
 	"k8s.io/kubectl/pkg/cmd/patch"
@@ -226,4 +227,8 @@ func NewCmdKustomize(streams genericiooptions.IOStreams) *cobra.Command {
 
 func NewCmdDiff(f kcmdutil.Factory, streams genericiooptions.IOStreams) *cobra.Command {
 	return cmdutil.ReplaceCommandName("kubectl", "oc", templates.Normalize(diff.NewCmdDiff(f, streams)))
+}
+
+func NewCmdKubeRC(streams genericiooptions.IOStreams) *cobra.Command {
+	return cmdutil.ReplaceCommandName("kubectl", "oc", templates.Normalize(kuberccmd.NewCmdKubeRC(streams)))
 }

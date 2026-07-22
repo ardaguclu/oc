@@ -39,7 +39,7 @@ var (
 )
 
 // NewCmdRollout facilitates kubectl rollout subcommands
-func NewCmdRollout(f kcmdutil.Factory, streams genericiooptions.IOStreams) *cobra.Command {
+func NewCmdRollout(parent string, f kcmdutil.Factory, streams genericiooptions.IOStreams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "rollout SUBCOMMAND",
 		Short:   "Manage the rollout of a resource",
@@ -52,7 +52,7 @@ func NewCmdRollout(f kcmdutil.Factory, streams genericiooptions.IOStreams) *cobr
 	cmd.AddCommand(NewCmdRolloutHistory(f, streams))
 	cmd.AddCommand(NewCmdRolloutPause(f, streams))
 	cmd.AddCommand(NewCmdRolloutResume(f, streams))
-	cmd.AddCommand(NewCmdRolloutUndo(f, streams))
+	cmd.AddCommand(NewCmdRolloutUndo(parent, f, streams))
 	cmd.AddCommand(NewCmdRolloutLatest(f, streams))
 	cmd.AddCommand(NewCmdRolloutStatus(f, streams))
 	cmd.AddCommand(NewCmdRolloutCancel(f, streams))
@@ -148,8 +148,8 @@ var (
 )
 
 // NewCmdRolloutUndo is a wrapper for the Kubernetes cli rollout undo command
-func NewCmdRolloutUndo(f kcmdutil.Factory, streams genericiooptions.IOStreams) *cobra.Command {
-	cmd := rollout.NewCmdRolloutUndo(f, streams)
+func NewCmdRolloutUndo(parent string, f kcmdutil.Factory, streams genericiooptions.IOStreams) *cobra.Command {
+	cmd := rollout.NewCmdRolloutUndo(parent, f, streams)
 	cmd.Long = undoLong
 	cmd.Example = undoExample
 	validArgs := []string{"deployment", "replicaset", "replicationcontroller", "statefulset", "deploymentconfig"}

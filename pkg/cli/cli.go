@@ -241,7 +241,7 @@ func NewOcCommand(o kubecmd.KubectlOptions) *cobra.Command {
 		{
 			Message: "Build and Deploy Commands:",
 			Commands: []*cobra.Command{
-				rollout.NewCmdRollout(f, o.IOStreams),
+				rollout.NewCmdRollout("oc", f, o.IOStreams),
 				rollback.NewCmdRollback(f, o.IOStreams),
 				newbuild.NewCmdNewBuild(f, o.IOStreams),
 				startbuild.NewCmdStartBuild(f, o.IOStreams),
@@ -332,6 +332,9 @@ func NewOcCommand(o kubecmd.KubectlOptions) *cobra.Command {
 	cmds.AddCommand(kubectlwrappers.NewCmdPlugin(f, o.IOStreams))
 	cmds.AddCommand(version.NewCmdVersion(f, o.IOStreams))
 	cmds.AddCommand(options.NewCmdOptions(o.IOStreams))
+	if !kcmdutil.KubeRC.IsDisabled() {
+		cmds.AddCommand(kubectlwrappers.NewCmdKubeRC(o.IOStreams))
+	}
 
 	registerCompletionFuncForGlobalFlags(cmds, f)
 
